@@ -3,6 +3,7 @@ title: 'Group Work: Assignment 2'
 author: "An Nguyen, Leo Doan, Andy Huynh, Hue Chau"
 date: "Due: 11/16/2026"
 output: pdf_document
+block-headings: true
 ---
 
 ```{r setup, include=FALSE}
@@ -19,7 +20,7 @@ In the last assignment, you have brainstormed some questions you might investiga
 
 ### Answer to (1)
 
-Numbers in square brackets refer to the References section at the end of this document.
+*(Numbers in square brackets refer to the References section at the end of this document.)*
 
 **Our questions (from Step 2)**
 
@@ -84,7 +85,10 @@ Numbers in square brackets refer to the References section at the end of this do
 
 ### Answer to (2)
 
-The raw New York Times county files have six columns: `date`, `county`, `state`, `fips`, `cases` and `deaths`, where `cases` and `deaths` are cumulative counts [10]. Almost all of our variables are therefore derived. We will build each one at the state level (Massachusetts and Florida totals) for Questions 1 and 3, and at the county level within Massachusetts for Question 2. Source numbers refer to the References section at the end of this document.
+*(Source numbers refer to the References section at the end of this document.)*
+
+The raw New York Times county files have six columns: `date`, `county`, `state`, `fips`, `cases` and `deaths`, where `cases` and `deaths` are cumulative counts [10]. Almost all of our variables are therefore derived. We will build each one at the state level (Massachusetts and Florida totals) for Questions 1 and 3, and at the county level within Massachusetts for Question 2. 
+
 
 **Continuous variables (8)**
 
@@ -129,8 +133,498 @@ One data-cleaning choice follows from the README: rows with county "Unknown" [10
 
 - Create at least 3 plots to examine relationship between the explanatory variables and the variable you are interested to study. 
 
-```{r}
+### Answer to (3)
+
+Everything in this part is computed from the three data sets listed in the References: the New York Times county files [10], the Census Bureau population estimates [11] and the NCHS urban-rural codes [8]. Every number quoted in the text below comes from the tables and plots produced by the code shown.
+
+#### Setting up and building the variables
+
+```{r part3-setup}
+library(tidyverse)
+library(readxl)
+
+policy_date <- as.Date("2020-11-06")  # Massachusetts restrictions take effect [1]
+win_start   <- as.Date("2020-10-01")  # start of our study window
+win_end     <- as.Date("2020-12-12")  # end of our case window
+deaths_end  <- as.Date("2021-01-31")  # deaths are followed longer (Question 3)
+
+# 7-day rolling mean: the average of a day and the 6 days before it
+roll7 <- function(x) as.numeric(stats::filter(x, rep(1 / 7, 7), sides = 1))
+
+# One fixed colour per state and per county group, used in every plot
+state_cols <- c("Massachusetts" = "#2a78d6", "Florida" = "#eb6834")
+group_cols <- c("Large metro" = "#6250d6",
+                "Medium or small metro" = "#1baf7a",
+                "Non-metro" = "#eda100")
+
+theme_set(theme_minimal(base_size = 10) +
+            theme(panel.grid.minor = element_blank(),
+                  legend.position = "top",
+                  plot.title = element_text(face = "bold")))
 ```
+
+```{r part3-data}
+# NYT county files: cumulative cases and deaths [10]
+nyt <- bind_rows(
+  read_csv("data/us-counties-2020.csv", col_types = "Dcccii"),
+  read_csv("data/us-counties-2021.csv", col_types = "Dcccii")
+) |>
+  filter(state %in% c("Massachusetts", "Florida"))
+
+# Census population estimates for July 1, 2020 [11]
+census <- read_csv("data/co-est2023-alldata.csv",
+                   locale = locale(encoding = "latin1"),
+                   col_types = cols(SUMLEV = "c", STATE = "c", COUNTY = "c")) |> 
+  filter(STNAME %in% c("Massachusetts", "Florida")) |> 
+  transmute(SUMLEV, state = STNAME, fips = paste0(STATE, COUNTY),
+            population = POPESTIMATE2020)
+state_pop  <- census |> filter(SUMLEV == "040") |> select(state, population)
+county_pop <- census |> filter(SUMLEV == "050") |> select(fips, population)
+
+# NCHS urban-rural codes, 2013 scheme: 1 = most urban, 6 = most rural [8]
+nchs_levels <- c("Large central metro", "Large fringe metro", "Medium metro",
+                 "Small metro", "Micropolitan", "Noncore")
+nchs <- read_excel("data/NCHSURCodes2013-Past-Version.xlsx") |>
+  transmute(fips = sprintf("%05d", as.integer(`FIPS code`)),
+            urban_rural = factor(nchs_levels[`2013 code`],
+                                 levels = nchs_levels))
+
+# Builds the part (2) variables for a data frame already grouped by place
+add_variables <- function(df) {
+  df |> 
+    arrange(date, .by_group = TRUE) |> 
+    mutate(
+      new_cases           = cases - lag(cases),
+      new_deaths          = deaths - lag(deaths),
+      cases_7day_per100k  = roll7(new_cases) / population * 1e5,
+      deaths_7day_per100k = roll7(new_deaths) / population * 1e5,
+      case_growth_rate    = 100 * (cases_7day_per100k /
+                                     lag(cases_7day_per100k, 7) - 1),
+      cum_cases_per100k   = cases / population * 1e5,
+      days_since_policy   = as.numeric(date - policy_date),
+      period = factor(if_else(date < policy_date, "Before", "After"),
+                      levels = c("Before", "After"))
+    ) |> 
+    ungroup()
+}
+
+# State level (Questions 1 and 3): add up all counties, including "Unknown"
+state_daily <- nyt |> 
+  group_by(state, date) |> 
+  summarise(cases = sum(cases), deaths = sum(deaths), .groups = "drop") |>
+  left_join(state_pop, by = "state") |> 
+  group_by(state) |> 
+  add_variables()
+
+# County level within Massachusetts (Question 2): "Unknown" rows left out
+ma_county <- nyt |>
+  filter(state == "Massachusetts", county != "Unknown") |> 
+  left_join(county_pop, by = "fips") |> 
+  left_join(nchs, by = "fips") |> 
+  mutate(urban_group = fct_collapse(urban_rural,
+    "Large metro"           = c("Large central metro", "Large fringe metro"),
+    "Medium or small metro" = c("Medium metro", "Small metro"),
+    "Non-metro"             = c("Micropolitan", "Noncore"))) |> 
+  group_by(county) |> 
+  add_variables()
+
+# The three county groups, pooled: total cases divided by total population
+ma_group <- ma_county |> 
+  group_by(urban_group, date) |> 
+  summarise(cases = sum(cases), deaths = sum(deaths),
+            population = sum(population), .groups = "drop") |> 
+  group_by(urban_group) |> 
+  add_variables()
+
+# The windows we look at
+cases_win  <- state_daily |> filter(date >= win_start, date <= win_end)
+deaths_win <- state_daily |> filter(date >= win_start, date <= deaths_end)
+group_win  <- ma_group |> filter(date >= win_start, date <= win_end)
+county_win <- ma_county |> filter(date >= win_start, date <= win_end)
+```
+
+#### Checking the data
+
+```{r part3-checks}
+# Missing values in the raw counts
+c(missing_cases = sum(is.na(nyt$cases)), missing_deaths = sum(is.na(nyt$deaths)))
+
+# State level, Oct 1 to Jan 31: days with no new cases or a negative count,
+# together with the day that follows each of them
+deaths_win |> 
+  group_by(state) |> 
+  filter(new_cases <= 0 | new_deaths < 0 | lag(new_cases) == 0) |> 
+  ungroup() |>
+  select(state, date, new_cases, new_deaths) |> 
+  knitr::kable(caption = "Zero-report days and the day after each")
+
+# County level, Oct 1 to Dec 12: negative daily counts
+county_win |> 
+  filter(new_cases < 0) |> 
+  select(county, date, new_cases) |> 
+  knitr::kable(caption = "Negative daily case counts in Massachusetts counties")
+```
+
+**What we observe**
+
+- There are no missing values in `cases` or `deaths` for Massachusetts or Florida.
+- At the state level there are no negative daily counts between Oct 1, 2020 and Jan 31, 2021, but there are days with zero new cases and zero new deaths: Nov 26 (Thanksgiving), Dec 25 and Jan 1 in both states, and also Oct 10 in Florida. Each is followed by an unusually large count, for example 17,344 new cases in Florida on Nov 27. These look like days with no report, with the missed cases added to the next day. This is the "something unusual around Thanksgiving" we said we would watch for in part (1).
+- The 7-day average absorbs most of this, because from the next day on the zero and the catch-up count fall in the same 7-day window. Two kinds of days are still distorted: the zero-report day itself, where the average dips, and the day 7 days later, where `case_growth_rate` is compared against that dip and jumps. We have left these days in for now and point them out in the plots.
+- At the county level there are two negative daily counts (both -1), which matches the README's warning about corrections [10].
+
+#### Summary of the variables
+
+```{r part3-summary}
+state_pop |> knitr::kable(caption = "Population on July 1, 2020")
+
+cases_win |>
+  select(state, new_cases, new_deaths, cases_7day_per100k,
+         deaths_7day_per100k, case_growth_rate, cum_cases_per100k,
+         days_since_policy) |>
+  pivot_longer(-state, names_to = "variable") |>
+  group_by(variable, state) |>
+  summarise(min = min(value), median = median(value), mean = mean(value),
+            max = max(value), sd = sd(value), .groups = "drop") |>
+  knitr::kable(digits = 2,
+               caption = "Continuous variables by state, Oct 1 to Dec 12, 2020")
+
+cases_win |>
+  group_by(state, period) |>
+  summarise(days = n(),
+            cases_7day = mean(cases_7day_per100k),
+            growth_mean = mean(case_growth_rate),
+            growth_median = median(case_growth_rate),
+            deaths_7day = mean(deaths_7day_per100k),
+            .groups = "drop") |>
+  knitr::kable(digits = 2,
+               caption = "Means by state and period (rates per 100,000)")
+```
+
+**What we observe**
+
+- *`state`, `period` and `days_since_policy`.* Each state has 36 "Before" days (Oct 1 to Nov 5) and 37 "After" days (Nov 6 to Dec 12), so `days_since_policy` runs from -36 to 36 with a mean of 0, and the two periods are balanced.
+- *`population`.* Florida (21,591,299) has about three times the population of Massachusetts (6,997,713), which is why we compare rates per 100,000 and not counts.
+- *`new_cases` and `new_deaths`.* Both have a minimum of 0 because of the zero-report days. Florida's maximum of 17,344 new cases is the catch-up day after Thanksgiving. Massachusetts' maximum of 6,675 (Dec 3) is not next to a zero-report day.
+- *`cases_7day_per100k`.* The two states have almost the same median (21.7 in Florida, 20.7 in Massachusetts), but Massachusetts reaches a much higher maximum (71.8 against 44.6).
+- *`case_growth_rate`.* Massachusetts grew faster in a typical week (median 21.4% against 15.0%) and its growth was more variable (standard deviation 24.1 against 14.2).
+- *`deaths_7day_per100k`.* The means are nearly equal (0.35 and 0.34), but Massachusetts again has the higher maximum (0.72 against 0.51).
+- *`cum_cases_per100k`.* Florida had more reported cases per person for the whole window (3,284 to 5,173 per 100,000, against 1,899 to 4,083 in Massachusetts).
+
+#### Plots of the explanatory variables
+
+```{r part3-e1, fig.width=6.5, fig.height=2.6}
+# One row per county, on the day before the policy
+county_info <- ma_county |> filter(date == policy_date - 1)
+
+county_info |>
+  count(urban_rural, urban_group) |>
+  ggplot(aes(x = n, y = fct_rev(urban_rural), fill = urban_group)) +
+  geom_col(width = 0.6) +
+  geom_text(aes(label = n), hjust = -0.6, size = 3, colour = "grey20") +
+  scale_fill_manual(values = group_cols, name = "Group we use") +
+  scale_x_continuous(breaks = 0:6, limits = c(0, 6)) +
+  labs(title = "Plot E1. Massachusetts counties in each NCHS category",
+       x = "Number of counties", y = NULL)
+```
+
+```{r part3-e1-table}
+county_info |>
+  arrange(urban_rural, county) |>
+  select(county, urban_rural, urban_group, population) |>
+  knitr::kable(caption = "Massachusetts counties and their NCHS category")
+
+county_info |>
+  group_by(urban_group) |>
+  summarise(counties = n(), population = sum(population)) |>
+  mutate(share_of_state_pct = 100 * population / sum(population)) |>
+  knitr::kable(digits = 1, caption = "The three county groups")
+```
+
+**What we observe (Plot E1, `urban_rural`)**
+
+- The 14 Massachusetts counties are spread thinly over the six NCHS categories: 1 large central metro (Suffolk), 5 large fringe metro, 3 medium metro, 2 small metro, 2 micropolitan and 1 noncore (Nantucket). No category has more than 5 counties and two have only 1.
+- In part (2) we said we would decide how to group the categories after seeing these counts. We collapse them into three groups: **large metro** (codes 1 and 2, 6 counties), **medium or small metro** (codes 3 and 4, 5 counties) and **non-metro** (codes 5 and 6, 3 counties: Dukes, Franklin and Nantucket).
+- The groups are very unequal in population. Large metro holds 72.4% of the state's residents, medium or small metro 26.1%, and non-metro only 1.5% (105,753 people).
+- Berkshire County, which we named as a rural example in Step 2, is classed as small metro by NCHS, so it is in the middle group.
+
+```{r part3-e2, fig.width=6.5, fig.height=3.2}
+ggplot(county_info, aes(x = population / 1000,
+                        y = fct_reorder(county, population),
+                        fill = urban_group)) +
+  geom_col(width = 0.65) +
+  scale_fill_manual(values = group_cols, name = NULL) +
+  scale_x_continuous(labels = scales::comma) +
+  labs(title = "Plot E2. Population of Massachusetts counties (July 1, 2020)",
+       x = "Population (thousands)", y = NULL)
+```
+
+**What we observe (Plot E2, `population`)**
+
+- County populations are strongly right-skewed. They range from 14,237 (Nantucket) to 1,628,235 (Middlesex), more than a hundred times larger.
+- Population lines up closely with the urban-rural grouping: the six large metro counties are six of the seven largest, and the three non-metro counties are the three smallest.
+- For Question 2 this means the non-metro group's rates rest on few people, so a handful of cases moves its rate per 100,000 a lot. This is why we pool the counties in each group (total cases divided by total population) and do not average county rates.
+
+```{r part3-e3, fig.width=6.5, fig.height=3.4}
+state_before <- state_daily |> filter(date == policy_date - 1)
+
+ggplot(county_info, aes(x = cum_cases_per100k,
+                        y = fct_reorder(county, cum_cases_per100k),
+                        fill = urban_group)) +
+  geom_col(width = 0.65) +
+  geom_vline(data = state_before, aes(xintercept = cum_cases_per100k),
+             linetype = "dashed", colour = "grey30") +
+  geom_text(data = state_before,
+            aes(x = cum_cases_per100k, y = 0.4,
+                label = paste(state, "statewide")),
+            inherit.aes = FALSE, hjust = -0.05, vjust = 0,
+            size = 2.8, colour = "grey20") +
+  scale_fill_manual(values = group_cols, name = NULL) +
+  scale_x_continuous(labels = scales::comma, limits = c(0, 5000)) +
+  labs(title = "Plot E3. Cumulative cases per 100,000 on Nov 5, 2020",
+       subtitle = "The day before the Massachusetts restrictions took effect",
+       x = "Cumulative cases per 100,000 residents", y = NULL)
+```
+
+```{r part3-e3-table}
+state_before |>
+  select(state, cases, cum_cases_per100k, cases_7day_per100k) |>
+  knitr::kable(digits = 1, caption = "State values on Nov 5, 2020")
+```
+
+**What we observe (Plot E3, `cum_cases_per100k`)**
+
+- By Nov 5, Florida had reported 3,832 cases per 100,000 residents and Massachusetts 2,360, so Florida's earlier spread was about 1.6 times larger per person.
+- Within Massachusetts the differences between counties are larger than the difference between the two states: from 471 per 100,000 in Dukes to 3,729 in Suffolk.
+- Earlier spread follows the urban-rural grouping. The six large metro counties are all in the top eight, and the six lowest counties are all small metro or non-metro except Hampshire (medium metro). This fits the national finding that the pandemic hit large metropolitan areas first [7].
+- The two states were at almost the same point on the day before the policy in terms of current spread (21.7 new cases per 100,000 per day in Florida and 19.6 in Massachusetts), even though their histories differed. That makes Nov 6 a convenient starting line for the comparison.
+
+#### Plots of the relationship between explanatory variables and outcomes
+
+```{r part3-r1, fig.width=6.5, fig.height=3.3}
+line_ends <- cases_win |> filter(date == win_end)
+
+ggplot(cases_win, aes(x = date, y = cases_7day_per100k, colour = state)) +
+  geom_vline(xintercept = policy_date, linetype = "dashed",
+             colour = "grey30") +
+  annotate("text", x = policy_date - 1, y = 68, hjust = 1, size = 2.8,
+           colour = "grey20", label = "Nov 6: MA restrictions\ntake effect") +
+  annotate("text", x = as.Date("2020-11-26"), y = 24, size = 2.8,
+           colour = "grey20", label = "Thanksgiving\n(no report)") +
+  geom_line(linewidth = 0.9) +
+  geom_text(data = line_ends, aes(label = state), colour = "grey20",
+            hjust = 0, nudge_x = 1, size = 3) +
+  scale_colour_manual(values = state_cols, name = NULL) +
+  scale_x_date(date_breaks = "2 weeks", date_labels = "%b %d",
+               expand = expansion(mult = c(0.02, 0.2))) +
+  labs(title = "Plot R1. New cases per 100,000 (7-day average), by state",
+       x = NULL, y = "New cases per 100,000")
+```
+
+**What we observe (Plot R1: `state` and time against `cases_7day_per100k`)**
+
+- Cases rose in both states over the whole window, as we expected in H1. Neither curve turns down.
+- The two states are close together until early December. On Nov 6 Massachusetts was at 20.7 and Florida at 21.4. From Nov 22 to Dec 1 both sat between about 35 and 38, apart from the one-day dip on Nov 26.
+- In early December Massachusetts pulls sharply away. By Dec 12 it is at 68.8 against Florida's 44.6. From Nov 6 to Dec 12 the Massachusetts rate was multiplied by 3.3 and Florida's by 2.1.
+- This is the opposite of what H1 predicted for the comparison with Florida: after the restrictions, cases grew more in Massachusetts than in Florida.
+- The one-day dip on Nov 26 in both curves is the Thanksgiving zero-report day described above, not a real fall in cases.
+
+```{r part3-r2, fig.width=6.5, fig.height=3.2, message=FALSE}
+ggplot(cases_win, aes(x = days_since_policy, y = case_growth_rate,
+                      colour = state)) +
+  geom_hline(yintercept = 0, colour = "grey60") +
+  geom_vline(xintercept = 0, linetype = "dashed", colour = "grey30") +
+  geom_point(size = 1.2, alpha = 0.7) +
+  geom_smooth(aes(group = period), method = "lm", se = FALSE,
+              linewidth = 0.8) +
+  facet_wrap(~ state) +
+  scale_colour_manual(values = state_cols, guide = "none") +
+  labs(title = "Plot R2. Weekly case growth rate against days since Nov 6",
+       subtitle = "Straight lines are fitted separately before and after Nov 6",
+       x = "Days since Nov 6, 2020 (dashed line = policy date)",
+       y = "Change vs. 7 days earlier (%)")
+```
+
+**What we observe (Plot R2: `days_since_policy` against `case_growth_rate`)**
+
+- Growth was positive on most days in both states: almost all points are above the zero line.
+- Massachusetts does not follow a straight line in either period. Its growth rate moves in waves. After Nov 6 it first rose to about 56% (days 4 to 7), then fell steadily to about zero (days 17 to 26, which is Nov 23 to Dec 2), then jumped to between 61% and 90% (days 29 to 33) before dropping back to 14% on Dec 12.
+- Florida shows a similar flattening in the same days: its growth rate was between about -6% and 5% from Nov 27 to Dec 2. Because both states flatten together around Thanksgiving, we cannot tell from these data whether this was a real slowdown or less testing and reporting over the holiday.
+- Some points are distorted by zero-report days and should not be read at face value: the negative values on Nov 26 in both states, Florida's 64% on Oct 17 (7 days after its Oct 10 zero-report day), and the values on Dec 3 in both states (7 days after Thanksgiving).
+- The fitted lines suggest that a simple "one slope before, one slope after" model will describe Florida reasonably but will fit Massachusetts poorly. We need to keep this in mind for the regression in Step 4.
+
+```{r part3-r3, fig.width=6.5, fig.height=3}
+ggplot(cases_win, aes(x = period, y = case_growth_rate, fill = state)) +
+  geom_hline(yintercept = 0, colour = "grey60") +
+  geom_boxplot(width = 0.5, alpha = 0.85) +
+  facet_wrap(~ state) +
+  scale_fill_manual(values = state_cols, guide = "none") +
+  labs(title = "Plot R3. Weekly case growth rate before and after Nov 6",
+       x = "Period", y = "Change vs. 7 days earlier (%)")
+```
+
+**What we observe (Plot R3: `period` and `state` against `case_growth_rate`)**
+
+- In Massachusetts the typical growth rate did not fall after Nov 6. The median rose from 20.7% to 27.9% and the mean from 23.9% to 31.3%.
+- In Florida it also rose, from a median of 13.9% to 17.6% (mean 12.2% to 17.2%).
+- The increase was slightly larger in Massachusetts than in Florida, so this comparison does not support H1 either.
+- The "After" box for Massachusetts is much taller than the others. This is the wave pattern from Plot R2: the period mixes weeks of almost no growth with weeks of very fast growth, so its average hides a lot.
+
+```{r part3-r4, fig.width=6.5, fig.height=3.3}
+group_ends <- group_win |> filter(date == win_end)
+
+ggplot(group_win, aes(x = date, y = cases_7day_per100k,
+                      colour = urban_group)) +
+  geom_vline(xintercept = policy_date, linetype = "dashed",
+             colour = "grey30") +
+  geom_line(linewidth = 0.9) +
+  geom_text(data = group_ends, aes(label = urban_group), colour = "grey20",
+            hjust = 0, nudge_x = 1, size = 3) +
+  scale_colour_manual(values = group_cols, name = NULL) +
+  scale_x_date(date_breaks = "2 weeks", date_labels = "%b %d",
+               expand = expansion(mult = c(0.02, 0.3))) +
+  labs(title = "Plot R4. New cases per 100,000 in Massachusetts county groups",
+       subtitle = "7-day average; dashed line = Nov 6",
+       x = NULL, y = "New cases per 100,000")
+```
+
+```{r part3-r4-table}
+group_win |>
+  group_by(urban_group, period) |>
+  summarise(first = first(cases_7day_per100k),
+            last = last(cases_7day_per100k),
+            growth_mean = mean(case_growth_rate),
+            growth_median = median(case_growth_rate),
+            growth_sd = sd(case_growth_rate), .groups = "drop") |>
+  rename(group = urban_group) |>
+  knitr::kable(digits = 1,
+               caption = paste("County groups: cases per 100,000 on the first",
+                               "and last day of each period, and weekly growth"))
+```
+
+**What we observe (Plot R4: `urban_rural` and time against `cases_7day_per100k`)**
+
+- The large metro group and the medium or small metro group move almost together. On Nov 6 they were at 20.3 and 17.2, and on Dec 12 at 68.1 and 58.5. Both were multiplied by about 3.3 to 3.4 over the "After" period.
+- The non-metro group stayed well below the other two all the way through (7.7 on Nov 6), but it rose the most in relative terms: to 51.2 on Dec 12, about 6.6 times its Nov 6 value. This agrees with H2's expectation that the less urban counties would grow at least as fast as the urban ones, and with the national move of the pandemic toward rural areas [7].
+- The non-metro result is fragile. Its weekly growth rate has a standard deviation of 100 before Nov 6 and 66 after, against 15 to 32 for the other two groups, because the group has only 105,753 residents. Its median weekly growth hardly changed (36.8% before, 39.6% after).
+- All three groups show the same early-December jump as the state as a whole, so the December surge was not limited to one type of county.
+
+```{r part3-r5, fig.width=6.5, fig.height=4.2}
+deaths_win |>
+  select(state, date, cases_7day_per100k, deaths_7day_per100k) |>
+  pivot_longer(c(cases_7day_per100k, deaths_7day_per100k),
+               names_to = "measure") |>
+  mutate(measure = recode(measure,
+    cases_7day_per100k  = "New cases per 100,000 (7-day average)",
+    deaths_7day_per100k = "New deaths per 100,000 (7-day average)")) |>
+  ggplot(aes(x = date, y = value, colour = state)) +
+  geom_vline(xintercept = policy_date, linetype = "dashed",
+             colour = "grey30") +
+  geom_line(linewidth = 0.9) +
+  facet_wrap(~ measure, ncol = 1, scales = "free_y") +
+  scale_colour_manual(values = state_cols, name = NULL) +
+  scale_x_date(date_breaks = "2 weeks", date_labels = "%b %d") +
+  labs(title = "Plot R5. Cases and deaths per 100,000, Oct 1 to Jan 31",
+       subtitle = "Each panel has its own vertical scale; dashed line = Nov 6",
+       x = NULL, y = NULL)
+```
+
+```{r part3-r5-table}
+deaths_win |>
+  group_by(state) |>
+  summarise(peak_cases = max(cases_7day_per100k),
+            peak_cases_date = date[which.max(cases_7day_per100k)],
+            peak_deaths = max(deaths_7day_per100k),
+            peak_deaths_date = date[which.max(deaths_7day_per100k)]) |>
+  knitr::kable(digits = 2, caption = "Peaks between Oct 1 and Jan 31")
+```
+
+**What we observe (Plot R5: `state` and time against `deaths_7day_per100k`)**
+
+- In Massachusetts the death curve repeats the shape of the case curve later on. Cases jumped in early December and deaths climbed through December into January, from 0.30 per 100,000 on Nov 6 to 0.72 on Dec 12 and a peak of 1.17 on Jan 9.
+- The gap between the states that opened in cases in early December also opened in deaths, as H3 predicted. On Dec 12 Massachusetts was at 0.72 deaths per 100,000 against Florida's 0.46, and the gap stayed open through January.
+- Florida behaves differently at the start. In October its deaths were falling (from 0.43 on Oct 1 to 0.19 on Nov 6) while its cases were already rising, so deaths and cases moved in opposite directions for the first five weeks.
+- Florida's deaths were still near their highest level at the end of our window (peak 0.86 on Jan 28), so Jan 31 may be too early to see the whole Florida death curve.
+
+```{r part3-r6, fig.width=6.5, fig.height=3}
+# Correlation between deaths on a day and cases L days earlier, L = 0 to 42
+lag_cor <- expand_grid(state = names(state_cols), lag_days = 0:42) |>
+  mutate(correlation = map2_dbl(state, lag_days, function(s, L) {
+    d <- state_daily |>
+      filter(state == s) |>
+      mutate(cases_lagged = lag(cases_7day_per100k, L)) |>
+      filter(date >= win_start, date <= deaths_end)
+    cor(d$deaths_7day_per100k, d$cases_lagged)
+  }))
+
+ggplot(lag_cor, aes(x = lag_days, y = correlation, colour = state)) +
+  geom_line(linewidth = 0.9) +
+  geom_point(data = filter(lag_cor, lag_days %in% c(14, 21, 28, 35, 42)),
+             size = 2) +
+  scale_colour_manual(values = state_cols, name = NULL) +
+  scale_x_continuous(breaks = seq(0, 42, 7)) +
+  labs(title = "Plot R6. Correlation between deaths and earlier cases",
+       subtitle = "Dots mark the delays listed in part (2): 14 to 42 days",
+       x = "Number of days cases are shifted back",
+       y = "Correlation with deaths")
+```
+
+```{r part3-r6-table}
+lag_cor |>
+  filter(lag_days %% 7 == 0) |>
+  pivot_wider(names_from = state, values_from = correlation) |>
+  knitr::kable(digits = 3,
+               caption = "Correlation of deaths with cases shifted back")
+
+lag_cor |>
+  group_by(state) |>
+  slice_max(correlation, n = 1) |>
+  knitr::kable(digits = 3, caption = "Delay with the highest correlation")
+```
+
+**What we observe (Plot R6: delayed cases against `deaths_7day_per100k`)**
+
+- In Massachusetts the correlation is highest when cases are shifted back 25 days (0.977). That is inside the 2-to-8-week range in [9] and a little shorter than the 4 to 6 weeks that paper expected.
+- In Florida the correlation keeps rising as the delay gets longer and is highest at 42 days (0.925), the longest delay we tried. There is no peak inside our range, so this window does not pin down Florida's delay.
+- Florida's low correlation at short delays (0.651 with no delay) reflects what we saw in Plot R5: in October its deaths were falling while its cases were rising.
+- A caution: both series trend upward for most of the window, so the correlations are high at every delay (above 0.86 at all delays for Massachusetts). A high correlation here does not by itself show that one delay is right, and the differences between delays in Massachusetts are small.
+
+```{r part3-r7, fig.width=6.5, fig.height=3}
+deaths_lag <- state_daily |>
+  group_by(state) |>
+  mutate(cases_21_days_earlier = lag(cases_7day_per100k, 21)) |>
+  ungroup() |>
+  filter(date >= win_start, date <= deaths_end)
+
+ggplot(deaths_lag, aes(x = cases_21_days_earlier, y = deaths_7day_per100k,
+                       colour = state)) +
+  geom_point(size = 1.2, alpha = 0.7) +
+  facet_wrap(~ state) +
+  scale_colour_manual(values = state_cols, guide = "none") +
+  labs(title = "Plot R7. Deaths against cases 21 days earlier",
+       subtitle = "One point per day, Oct 1, 2020 to Jan 31, 2021",
+       x = "New cases per 100,000, 21 days earlier (7-day average)",
+       y = "New deaths per 100,000")
+```
+
+**What we observe (Plot R7: cases 21 days earlier against `deaths_7day_per100k`)**
+
+- In Massachusetts the points lie close to a straight line: days that follow higher case rates three weeks earlier have higher death rates (correlation 0.959). A linear regression of deaths on delayed cases looks reasonable for Massachusetts.
+- In Florida the relationship is positive but less tidy (correlation 0.844). There is a vertical cluster on the left where cases three weeks earlier were low (around 10 to 15 per 100,000) but deaths ranged from about 0.2 to 0.5. These are the October days when Florida's deaths were still coming down.
+- For the same case rate three weeks earlier, the two states do not have the same death rate, so the regression in Step 4 should allow the relationship to differ by state.
+
+#### What we take from part (3)
+
+- **H1 (Massachusetts growth slows after Nov 6, more than Florida's): not supported so far.** Cases per 100,000 were multiplied by 3.3 in Massachusetts and by 2.1 in Florida between Nov 6 and Dec 12, and the typical weekly growth rate rose in both states. The picture inside the "After" period is not constant, though: Massachusetts growth fell to about zero in late November and then surged in early December, right after Thanksgiving.
+- **H1b (Florida's growth rises in November and December): partly supported.** Florida's cases kept climbing and its average weekly growth was higher after Nov 6 than before, but inside the "After" period its growth rate trended down, not up.
+- **H2 (urban and less urban counties differ): some support, but weak evidence.** The non-metro group grew the most in relative terms after Nov 6, while the two metro groups moved together. The non-metro group is only 1.5% of the state's population and its growth rate is very noisy.
+- **H3 (deaths follow cases with a delay): supported for Massachusetts, unclear for Florida.** Massachusetts deaths line up best with cases 25 days earlier, and the December gap in cases shows up in deaths. Florida's best delay is at the edge of the range we tried.
+- These plots describe what happened. They do not show that the restrictions caused or failed to cause anything, for the reasons listed in part (1): the policy was a response to rising cases, Florida's reopening effect was expected in the same weeks [6], and Thanksgiving falls in the "After" period.
+
+**Things to fix or decide before Step 4**
+
+- Decide how to treat the zero-report days (Oct 10 in Florida; Nov 26, Dec 25 and Jan 1 in both states), since they distort `case_growth_rate` on that day and 7 days later.
+- A single straight line before and after Nov 6 fits Massachusetts poorly, so we should consider a model that allows for the Thanksgiving period.
+- Extend the deaths window beyond Jan 31, 2021, because Florida's deaths had not clearly come down by then.
 
 
 
