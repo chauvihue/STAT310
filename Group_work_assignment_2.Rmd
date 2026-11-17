@@ -1,0 +1,162 @@
+---
+title: 'Group Work: Assignment 2'
+author: "An Nguyen, Leo Doan, Andy Huynh, Hue Chau"
+date: "Due: 11/16/2026"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Step 3: Exploring the data
+
+Turn in one assignment per team (on Canvas), write the name of the team members on top of the assignment. 
+
+In the last assignment, you have brainstormed some questions you might investigate in the project. Now, you will look into some background related to these questions and start exploring the data. 
+
+(1) Look up some literature about the question you want to study and form some hypothesis from there. For example, what is your state's COVID-story? What were the dates of key events like COVID restrictions taking effect or being removed? What have people found about vaccine efficacy? If you are looking at the open policing data, you can look at some of the literature or news [on the website](https://openpolicing.stanford.edu/publications/). Describe your findings and keep a record of the website/articles you have found.
+
+### Answer to (1)
+
+Numbers in square brackets refer to the source list at the end of this answer.
+
+**Our questions (from Step 2)**
+
+1. Did Massachusetts' November 2020 restrictions (effective Nov 6) slow the growth of the 7-day average of daily new cases per 100,000 residents between Oct 1 and Dec 12, 2020, compared with Florida?
+2. Within Massachusetts, did case growth after Nov 6 differ between more urban and more rural counties?
+3. Did COVID deaths per 100,000 show the same pattern as cases, a few weeks later, in MA vs. FL?
+
+**Massachusetts' COVID story around our study window**
+
+- *May 6, 2020.* Governor Baker's first face-covering order took effect. It required masks or cloth face coverings in public places where social distancing is not possible, indoors and outdoors [2].
+- *Nov 2, 2020 (announced), in effect from 12:01 a.m. Friday, Nov 6.* The state tightened its rules in four ways at once [1]:
+    - a stay-at-home advisory from 10 p.m. to 5 a.m.;
+    - a 9:30 p.m. closing time for indoor dining and most indoor recreational venues (theaters and casinos included), with liquor and cannabis sales also ending at 9:30 p.m.;
+    - a mask requirement for everyone over 5 years old while in public, which WBUR describes as more restrictive than the spring order;
+    - private gatherings limited to 10 people indoors and 25 outdoors, with all gatherings ending by 9:30 p.m.
+- *Why the state acted.* When he announced the measures, Baker said that since Labor Day "the number of new cases per day has grown by almost 300%" and that daily hospitalizations had increased by 145% [1]. This matters for our analysis: the restrictions were a response to cases that were already rising fast, so the "before" period is not a calm baseline.
+
+**Florida's COVID story around our study window**
+
+- *Sept 25, 2020.* Governor DeSantis issued Executive Order 20-244, effective immediately [3]. We read the order itself. It:
+    - moved the state to Phase 3 and eliminated the restrictions of the earlier Phase 1 and Phase 2 orders (Section 1);
+    - stated that "No COVID-19 emergency ordinance may prevent an individual from working or from operating a business" (Section 2);
+    - barred local governments from limiting restaurants to less than 50% of indoor capacity, and required any local limit below 100% to quantify its economic impact and explain why it is necessary for public health (Section 3);
+    - suspended "the collection of fines and penalties associated with COVID-19 enforced upon individuals" (Section 4).
+- The state's Phase 3 guidelines said bars, pubs and nightclubs "should operate at full capacity with limited social distancing protocols" [4].
+- *Masks.* The executive order does not mention masks or face coverings [3]. The Florida Restaurant & Lodging Association's restrictions tracker (the version we found is dated Feb 3, 2021) describes the state Department of Health's position as "Advises wearing masks in public", while actual mask requirements are listed county by county, for example in Brevard County and in the City of Jacksonville (Duval County) [5]. So Massachusetts had a statewide mask requirement, while Florida had a state advisory plus a patchwork of local rules, with the collection of fines on individuals suspended [3].
+
+**What researchers have found**
+
+- *Mask mandates and restaurant dining (most relevant to Question 1).* A CDC study of 3,142 U.S. counties from March 1 to December 31, 2020 [6] found that:
+    - mask mandates were associated with a drop in the daily case growth rate of 0.5 percentage points 1 to 20 days after they started, growing to 1.1 points at 21 to 40 days and 1.8 points at 81 to 100 days. The daily death growth rate fell by 0.7 points at 1 to 20 days and by 1.9 points at 81 to 100 days;
+    - allowing on-premises restaurant dining showed no statistically significant change in case growth during the first 40 days, then increases of 0.9, 1.2 and 1.1 percentage points at 41 to 60, 61 to 80 and 81 to 100 days. Death growth rose by 2.2 and 3.0 points at 61 to 80 and 81 to 100 days;
+    - the authors list three limitations: they did not control for other policies, they did not measure compliance or enforcement, and they did not separate indoor from outdoor dining.
+- *Urban vs. rural (Question 2).* A CDC report on incidence by county type through October 31, 2020 [7] found that early in the pandemic incidence was highest in large metropolitan areas, but that "In September 2020, COVID-19 incidence sharply increased, and it remains highest among residents of medium/small metropolitan areas and micropolitan/noncore areas, indicating increased spread into rural communities." By October, "weekly incidence was increasing steadily among all urban-rural areas." The county types come from the NCHS Urban-Rural Classification Scheme, which sorts every county into six categories from "large central metro" to "noncore" [8].
+- *The delay between symptoms manifestation and deaths recorded (Question 3).* A Harvard working paper that animated state-level cases and deaths per capita [9] notes that "deaths often occur 2-8 weeks after onset of symptoms" and expected deaths "will increase 4-6 weeks after observed surges in case rates." It also warns that the size of the later rise in deaths depends on the age distribution of the place and of its cases.
+- *About our data.* The New York Times county files report cumulative cases and deaths, counting both confirmed and probable cases [10]. The README warns that "In some cases, the number of cases or deaths for a state or county will decline" when a state corrects an earlier error, and that cases with no known county are recorded under the county name "Unknown" [10]. It lists no geographic exceptions for Massachusetts or Florida [10].
+
+**What this means for our study design**
+
+- Our case window ends Dec 12, 2020, which is 36 days after Nov 6. That puts us inside the first two windows of the CDC study (1 to 20 and 21 to 40 days), where the association with mask mandates was real but small (0.5 to 1.1 percentage points of daily growth) [6]. We should expect a modest change, not a dramatic one.
+- Counting forward from Sept 25, the 41-to-100-day window in which the CDC study saw case growth rise after restaurants reopened runs from Nov 5, 2020 to Jan 3, 2021 (our own date calculation applied to [6]). That is almost exactly the same period as Massachusetts' "after" period. If the MA and FL curves separate after Nov 6, part of that gap could come from Florida's reopening and not from Massachusetts' restrictions. We beleive that we cannot fully separate the two with this design.
+- Massachusetts changed four things on the same day [1], so we can only study the Nov 6 package as a whole, not masks alone.
+- Thanksgiving (Nov 26, 2020) falls inside the "after" period in both states. We will watch for anything unusual around that date in the plots.
+- Because deaths can trail cases by 2 to 8 weeks [9], the deaths comparison for Question 3 has to run past Dec 12 into January 2021. This is why we need the 2021 data file. Vaccination started in mid-December 2020; we still need to add a source for that date before we rely on it.
+- These are observational data. Like the CDC study [6], we can describe associations but cannot prove that the policies caused the changes.
+
+**Hypotheses**
+
+- **H1 (Question 1).** After Nov 6, the growth rate of Massachusetts' 7-day average of new cases per 100,000 will be lower than it was before Nov 6, and the change will be more favorable than Florida's change over the same dates. Based on [6] we expect the difference to be small within our 36-day window, and we expect cases to keep rising in both states rather than fall.
+- **H1b.** Florida's case growth will increase during November and December, consistent with the delayed rise that [6] found 41 to 100 days after on-premises dining was allowed.
+- **H2 (Question 2).** Within Massachusetts, the change in case growth after Nov 6 will differ between more urban and less urban counties. National data [7] show that by fall 2020 incidence was highest outside the large metropolitan areas, so we expect the less urban counties to show case growth at least as fast as the urban ones. We do not have a strong prediction for which group slowed more after Nov 6.
+- **H3 (Question 3).** Deaths per 100,000 will follow the same pattern as cases with a delay of roughly 2 to 6 weeks [9]. Any gap that opens between MA and FL in cases after Nov 6 should appear in deaths between late November and January.
+
+**Record of sources** (all accessed November 16, 2026)
+
+1. Brown, S., and WBUR News & Wire Services. "Baker Imposes Mask, Stay-At-Home Advisory To Combat New Rise In COVID-19 Cases." WBUR, November 2, 2020. <https://www.wbur.org/news/2020/11/02/outdoor-masks-stay-at-home-covid-19-coronavirus-massachusetts>
+2. University of Massachusetts Amherst. "Governor's New Order Requires Face Masks or Cloth Face Coverings on Campus." May 7, 2020. <https://www.umass.edu/news/article/governor%E2%80%99s-new-order-requires-face-masks>
+3. State of Florida, Office of the Governor. Executive Order Number 20-244 (Phase 3; Right to Work; Business Certainty; Suspension of Fines). September 25, 2020. Copy hosted by the City of Pompano Beach: <https://cdn.pompanobeachfl.gov/city/pages/emergency_management/EO_20-244.pdf>
+4. Kuehnel, S. S. "Florida Enters Phase 3, Reopens Bars and Restaurants." Ogletree Deakins, September 30, 2020. <https://ogletree.com/insights-resources/blog-posts/florida-enters-phase-3-reopens-bars-and-restaurants>
+5. Florida Restaurant & Lodging Association. "Florida Restrictions as of February 3, 2021." <https://frla.org/wp-content/uploads/2021/02/Florida-County-restrictions-2-3.pdf>
+6. Guy, G. P. Jr., Lee, F. C., Sunshine, G., et al. "Association of State-Issued Mask Mandates and Allowing On-Premises Restaurant Dining with County-Level COVID-19 Case and Death Growth Rates - United States, March 1-December 31, 2020." MMWR Morbidity and Mortality Weekly Report 2021;70(10):350-354. <https://www.cdc.gov/mmwr/volumes/70/wr/mm7010e3.htm> (The page notes that the report has been corrected; the figures above are from the page as currently posted.)
+7. Duca, L. M., Coyle, J., McCabe, C., and McLean, C. A. "COVID-19 Stats: COVID-19 Incidence, by Urban-Rural Classification - United States, January 22-October 31, 2020." MMWR Morbidity and Mortality Weekly Report 2020;69(46):1753. <https://www.cdc.gov/mmwr/volumes/69/wr/mm6946a6.htm>
+8. National Center for Health Statistics, CDC. "NCHS Urban-Rural Classification Scheme for Counties." <https://www.cdc.gov/nchs/data-analysis-tools/urban-rural.html>
+9. Testa, C. C., Krieger, N., Chen, J. T., and Hanage, W. P. "Visualizing the lagged connection between COVID-19 cases and deaths in the United States: An animation using per capita state-level data (January 22, 2020 - July 8, 2020)." Harvard Center for Population and Development Studies Working Paper Volume 19, Number 4, July 10, 2020. <https://popcenter.harvard.edu/wp-content/uploads/2020/07/HCPDS-WP_19_4_testa-et-al_Visualizing-Lagged-Connection-Between-COVID-19-Cases-and-Deaths-in-US_final_07_10_with-cover.pdf>
+10. The New York Times. "Coronavirus (Covid-19) Data in the United States" (README for the data repository). <https://github.com/nytimes/covid-19-data>. Data from The New York Times, based on reports from state and local health agencies.
+11. U.S. Census Bureau. "County Population Totals and Components of Change: 2020-2025." <https://www.census.gov/data/tables/time-series/demo/popest/2020s-counties-total.html> (source for the population counts we need in part (2); we have not downloaded the file yet).
+
+(2) Find at least 6 continuous and 2 categorical variables related to your question and describe them in a table. You can also create your own variables. Explain why you choose these variables. 
+
+**Example**
+
+| Variable name  | Description |
+|----|-----|
+|   Vaccinations per 100000  |  Number of vaccinations per 100000 population | 
+|  Population over 65 per 100000   |   Number of adults over 65 years old per 100000 population|
+
+### Answer to (2)
+
+The raw New York Times county files have six columns: `date`, `county`, `state`, `fips`, `cases` and `deaths`, where `cases` and `deaths` are cumulative counts [10]. Almost all of our variables are therefore derived. We will build each one at the state level (Massachusetts and Florida totals) for Questions 1 and 3, and at the county level within Massachusetts for Question 2. Source numbers refer to the list in part (1).
+
+**Continuous variables (8)**
+
+| Variable name | Description | Source |
+|------------|----------------------|----------|
+| `new_cases` | Daily new cases: today's cumulative `cases` minus the previous day's, within each state or county | Derived from NYT data [10] |
+| `new_deaths` | Daily new deaths: today's cumulative `deaths` minus the previous day's, within each state or county | Derived from NYT data [10] |
+| `cases_7day_per100k` | 7-day rolling mean of `new_cases`, divided by population and multiplied by 100,000. **Main outcome for Questions 1 and 2** | Derived from NYT data [10] and Census population [11] |
+| `deaths_7day_per100k` | 7-day rolling mean of `new_deaths`, divided by population and multiplied by 100,000. **Main outcome for Question 3** | Derived from NYT data [10] and Census population [11] |
+| `case_growth_rate` | Percent change in `cases_7day_per100k` compared with its value 7 days earlier | Derived |
+| `cum_cases_per100k` | Cumulative `cases` divided by population and multiplied by 100,000: how much reported spread a place had already had by that date | Derived from NYT data [10] and Census population [11] |
+| `days_since_policy` | Date minus Nov 6, 2020, in days. Negative before the Massachusetts restrictions took effect, 0 on Nov 6, positive after | Derived from `date`; policy date from [1] |
+| `population` | Resident population of the state or county | U.S. Census Bureau county population estimates [11] |
+
+For Question 3 we will also create lagged copies of `cases_7day_per100k` (its value 14, 21, 28, 35 and 42 days earlier) so that deaths on a given day can be compared with cases from 2 to 6 weeks before.
+
+**Categorical variables (4)**
+
+| Variable name | Description | Source |
+|------------|----------------------|----------|
+| `state` | Massachusetts or Florida | NYT data [10] |
+| `period` | "Before" if the date is earlier than Nov 6, 2020, otherwise "After" | Derived from `date`; policy date from [1] |
+| `urban_rural` | NCHS urban-rural category of the county. The scheme has six levels: large central metro, large fringe metro, medium metro, small metro, micropolitan and noncore | NCHS Urban-Rural Classification Scheme [8], joined by county `fips` |
+| `county` | County name, with `fips` as its ID code | NYT data [10] |
+
+**Why we chose these variables**
+
+- *Rates per 100,000, not raw counts.* States and counties differ in population size, so raw counts cannot be compared directly. Dividing by population is also how the CDC report on urban-rural incidence measured its outcome (cases per 100,000 population) [7]. This is the reason we need `population` from the Census Bureau, which is not in the NYT data.
+- *7-day averages.* Daily counts can jump around from one day to the next, and the NYT README warns that cumulative counts sometimes drop when a state corrects an earlier error [10], which would create negative daily values. Averaging over 7 days smooths this out. We will also check `new_cases` and `new_deaths` for negative values before averaging.
+- *A growth rate as well as a level.* Our question is whether case growth slowed, not whether cases were high or low. The CDC mask-mandate study also used daily case and death growth rates as its outcomes [6]. Massachusetts' restrictions were introduced while cases were already climbing [1], so the level of cases could keep rising after Nov 6 even if the policy worked; a growth rate can show a slowdown that the level hides.
+- *`days_since_policy` and `period`.* Together these let us fit a separate trend before and after Nov 6 in the regression step. `period` allows a simple before/after comparison, and `days_since_policy` lets the slope of the trend change at the policy date.
+- *`state`.* Florida is our comparison group. It moved in the opposite direction on Sept 25, 2020 [3], and none of the sources we found show a new statewide Florida restriction around Nov 6, so comparing the two states helps separate the Massachusetts policy from the nationwide fall rise in cases described in [7].
+- *`urban_rural` and `county`.* These are needed for Question 2. National data show that the pandemic moved from large metropolitan areas toward smaller and rural ones during 2020 [7], and we want to see whether Massachusetts counties followed that pattern around Nov 6. Using the NCHS scheme [8] gives us a published definition of "urban" and "rural" so that we do not label counties by our own impression. Massachusetts has few counties, so we may need to collapse the six levels into two or three groups; we will decide after looking at how many counties fall in each level.
+- *`cum_cases_per100k`.* This describes how hard each state or county had already been hit before the fall, which is useful background when comparing places and a possible explanatory variable in the regression.
+- *Deaths and lagged cases.* Deaths are a second, more severe outcome that lets us check whether the pattern in cases shows up again, but they trail cases by roughly 2 to 8 weeks [9]. The lagged case variables let us check whether the death curves in the two states repeat the case curves after a delay, which is exactly Question 3.
+
+One data-cleaning choice follows from the README: rows with county "Unknown" [10] have no county population or urban-rural category, so we will keep them in the state totals but leave them out of the county-level analysis.
+
+(3) Visualize and summarize the variables you mentioned in part (2) (you will continue doing this next week). What do you observe from the graphs?
+
+- Create at least 3 plots to visualize variables that you consider to be explanatory. 
+
+- Create at least 3 plots to examine relationship between the explanatory variables and the variable you are interested to study. 
+
+```{r}
+```
+
+
+
+## Step 4: Applying regression
+
+1. Let's use regression modeling (linear regression) to better understand factors affecting the COVID epidemic or search/contraband found in police stopping. Fit single or multiple (linear) regression models to study the relationships between explanatory and outcome variables. Explain what you find: How do you interpret the fitted coefficients of the explanatory variables? 
+
+2. Now that you have explored the data using visualization, identified  questions and hypotheses, and fitted regression models, you can start to think about a cohesive story you will tell from your analysis for the final project. (Nothing needs to be turned in for this question, but you are welcome to document the conversation if you want some feedback)
+
+- Introduction: What questions do you want to answer using the data? what motivates you to think about this question? what do you expect to see?
+
+- Descriptive analyses:  Use graph/summary statistics to examine your hypothesis. what do you observe? 
+
+
+
